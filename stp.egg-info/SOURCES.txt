@@ -1,0 +1,13 @@
+README.md
+setup.cfg
+setup.py
+stp/__init__.py
+stp/info.py
+stp/stochastic.py
+stp/typical_set.py
+stp.egg-info/PKG-INFO
+stp.egg-info/SOURCES.txt
+stp.egg-info/dependency_links.txt
+stp.egg-info/requires.txt
+stp.egg-info/top_level.txt
+stp/tools/gui.py

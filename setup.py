@@ -22,7 +22,7 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 3.5',
     ],
-
+    download_url='https://github.com/otanan/STP/archive/refs/tags/0.0.1.0.tar.gz',
     # packages=find_packages(),
     packages=[
         'stp',
