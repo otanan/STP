@@ -31,6 +31,7 @@ setup(
     install_requires=[
         # External packages
         'numpy',
+        'scipy',
     ],
 )
 
