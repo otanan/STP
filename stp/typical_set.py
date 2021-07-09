@@ -101,7 +101,7 @@ def verify_TS(typical_set, R, epsilon):
 ######################## Main body ########################
 
 
-def typical_set(R, p, path_space, time_step=1, epsilon=1):
+def typical_set(R, p, paths, time_step=1, epsilon=1):
     """ Samples a path space and generates a typical set on this sampled path 
         space.
 
@@ -110,7 +110,7 @@ def typical_set(R, p, path_space, time_step=1, epsilon=1):
 
             p (np.ndarray): the initial marginal distribution
 
-            path_space (np.ndarray): the portion of the path space to use.
+            paths (np.ndarray): the portion of the path space to use.
     
         Kwargs:
             time_step (float): the time between observations
@@ -118,7 +118,7 @@ def typical_set(R, p, path_space, time_step=1, epsilon=1):
             epsilon (float): the epsilon neighborhood to consider paths to be typical within
     
         Returns:
-            (2-tuple): the first component being the typical set as a list of 2-tuples, each tuple being the (path, path probability vs n), the second component of the returned tuple is the total path space as a list of 3-tuples, each tuple being (path, path probability vs n, True if typical False if a typical as a function of n). In this case a path is added to the typical set if its final path entropy rate is within the typical set bounds. While a path may be atypical by the end of the observation, it could have been typical before, and this information is encoded in the last component as a list of bools.
+            (list): List of 3-tuples. The first component being the typical set as a list of 2-tuples, each tuple being the (path, path probability vs n), the second component of the returned tuple is the total path space as a list of 3-tuples, each tuple being (path, path probability vs n, True if typical False if a typical as a function of n). In this case a path is added to the typical set if its final path entropy rate is within the typical set bounds. While a path may be atypical by the end of the observation, it could have been typical before, and this information is encoded in the last component as a list of bools. The last component is a 2-tuple (TS_lower_bound, TS_upper_bound)
     
     """
      
@@ -134,10 +134,7 @@ def typical_set(R, p, path_space, time_step=1, epsilon=1):
     n = len(p)
 
     final_time = time_step * (path_length - 1)
-    num_paths, path_length = path_space.shape
-
-    # Save the initial distribution
-    pinit = p
+    num_paths, path_length = paths.shape
 
     # List of 2-tuples representing the typical set
         # (path_probability, forward path)
@@ -232,7 +229,7 @@ def typical_set(R, p, path_space, time_step=1, epsilon=1):
     print(f'{percent_typical}% of tested paths are typical.')
 
 
-    return typical_set, sampled_set
+    return typical_set, sampled_set, (TS_lower, TS_upper)
 
 
 #------------- Entry code -------------#

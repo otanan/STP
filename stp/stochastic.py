@@ -180,8 +180,8 @@ def self_assembly_transition_matrix(energy=1, c=1, M=1, T=1, time_step=1):
         # Convert n to time.
         # This also serves to fix the temperature between observations to change
             # the control parameter discretely.
-        old_T = T
-        T = lambda n : old_T(n * time_step)
+        R = lambda n : self_assembly_transition_matrix(energy=energy, c=c, M=M, T=T(n * time_step), time_step=time_step)
+        return R
 
     return rate_to_transition_matrix(
             self_assembly_rate_matrix(energy=energy, c=c, M=M, T=T),
