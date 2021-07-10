@@ -11,7 +11,7 @@
 import numpy as np
 
 import stp
-import stp.info
+import stp.info as info
 # For ProgressBar
 import stp.tools.gui as gui
 
@@ -101,135 +101,128 @@ def verify_TS(typical_set, R, epsilon):
 ######################## Main body ########################
 
 
-def typical_set(R, p, paths, time_step=1, epsilon=1):
-    """ Samples a path space and generates a typical set on this sampled path 
-        space.
-
-        Args:
-            R (np.ndarray/function): the transition matrix, time-dependent if provided as a function
-
-            p (np.ndarray): the initial marginal distribution
-
-            paths (np.ndarray): the portion of the path space to use.
+class TypicalSet:
+    """ Typical set object. Holds path probabilities, typical paths, atypical 
+        paths, atypical path probabilities and more.
     
-        Kwargs:
-            time_step (float): the time between observations
+        This object will use a provided (often sampled) path space to partition the space into a collection of typical and atypical paths depending on the dynamics provided. Will also track other quantities of interest such as the upper and lower bounds on the path probabilities required for the paths to be considered typical.
+        
+        Attributes:
+            epsilon: the width of the neighborhood used for paths to be considered typical.
 
-            epsilon (float): the epsilon neighborhood to consider paths to be typical within
-    
-        Returns:
-            (list): List of 3-tuples. The first component being the typical set as a list of 2-tuples, each tuple being the (path, path probability vs n), the second component of the returned tuple is the total path space as a list of 3-tuples, each tuple being (path, path probability vs n, True if typical False if a typical as a function of n). In this case a path is added to the typical set if its final path entropy rate is within the typical set bounds. While a path may be atypical by the end of the observation, it could have been typical before, and this information is encoded in the last component as a list of bools. The last component is a 2-tuple (TS_lower_bound, TS_upper_bound)
-    
+            num_paths: the number of paths considered (typical + atypical).
+
+            path_length: the length of the paths considered.
+
+            paths: a numpy matrix holding paths as rows and the nth column will correspond to the nth state observed for each path.
+
+            probabilities: a matrix where the (i,j)th element is the probability of observing the first j states of the ith path.
+
+            path_typicalities: a matrix where the (i,j)th element is a boolean determining whether the ith path is typical after j steps.
+
+            upper_bound: a list of upper bounds versus symbols observed corresponding to the upper bound for paths probabilities for the path to be considered typical.
+
+            lower_bound: the lower bound analogous to the upper bound.
     """
-     
-    #------------- Data preparation -------------#
+    def __init__(self, R, p, paths, epsilon=1):
+        """ Samples a path space and generates a typical set on this space.
 
-    # Convert the transition matrix to add time-dependence as a constant matrix
-        # if a np.ndarray was provided
-    if isinstance(R, np.ndarray):
-        oldR = R
-        R = lambda n : oldR
+            Args:
+                R (np.ndarray/function): the transition matrix, time-dependent if provided as a function
 
-    # The number of states
-    n = len(p)
+                p (np.ndarray): the initial marginal distribution
 
-    final_time = time_step * (path_length - 1)
-    num_paths, path_length = paths.shape
+                paths (np.ndarray): the portion of the path space to use.
+        
+            Kwargs:
+                epsilon (float): the epsilon neighborhood to consider paths to be typical within
+        
+        """
+        self.epsilon = epsilon
+        self.paths = paths
 
-    # List of 2-tuples representing the typical set
-        # (path_probability, forward path)
-    typical_set = []
-    # List of 3-tuples representing the sampled path space
-        # (path_probability, forward path, is_typical)
-    sampled_set = []
+        #------------- Data preparation -------------#
 
-    path_probabilities = np.zeros(paths.shape)
+        # Convert the transition matrix to add time-dependence as a constant 
+            # matrix if a constant matrix was provided
+        if not callable(R):
+            # Not being saved as an attribute since this is not easily
+                # recoverable by being saved to a file.
+            # Emphasize saving properties that can be saved/loaded.
+            oldR = R
+            R = lambda n : oldR
 
-    # Used for the bounds
-    entropy_rate = info.entropy_rate(R)
-    entropy_rate_vs_time = [
-        entropy_rate(i)
-        for i in range(path_length)
-    ]
+        # The number of states
+        n = len(p)
 
-    #------------- Data gathering -------------#
+        self.num_paths, self.path_length = paths.shape
 
-    bar = gui.ProgressBar(path_length * num_paths, width=300, title='Gathering data...')
-    
-    ### Quantities versus time ###
-    for current_path_length in range(2, path_length + 1):
-        # The data index
-        i = current_path_length - 1
-        # Since the marginals are zero-indexed as are the paths
-        step_index = current_path_length - 2
+        self.probabilities = np.zeros(paths.shape)
+        # Initialize the marginal distribution data
+        for x, path in enumerate(self.paths):
+            # Just equal to the initial marginal
+            self.probabilities[x, 0] = p[path[0]]
 
-        currentR = R(current_path_length - 1)
-        # Propagate the marginal one step and save it separately
-            # for quantities like the temporal coarse graining term
-        pstep = step(currentR, p)
+        # Used for the bounds
+        entropy_rate = info.entropy_rate(R)
+        entropy_rate_vs_time = np.array([
+            entropy_rate(i)
+            for i in range(self.path_length)
+        ])
 
-        ### Path probability calculations ###
-        for x, path in enumerate(paths):
+        #------------- Data gathering -------------#
 
-            current_state = path[step_index]
-            jump_state = path[step_index + 1]
+        bar = gui.ProgressBar(self.path_length * self.num_paths, width=300, title='Gathering data...')
+        
+        ### Quantities versus time ###
+        for current_path_length in range(2, self.path_length + 1):
+            # The data index
+            i = current_path_length - 1
+            # Since the marginals are zero-indexed as are the paths
+            step_index = current_path_length - 2
 
-            # Forward calculations
-            # Recursive calculation to save time
-            last_joint = path_probabilities[x, i - 1]
-            jump_prob = currentR[jump_state, current_state]
-            path_probabilities[x, i] = last_joint * jump_prob
+            currentR = R(current_path_length - 1)
+            # Propagate the marginal one step and save it separately
+                # for quantities like the temporal coarse graining term
+            pstep = stp.step(currentR, p)
 
-            bar.update()
+            ### Path probability calculations ###
+            for x, path in enumerate(paths):
 
+                current_state = path[step_index]
+                jump_state = path[step_index + 1]
 
-        # Finished data gathering for this iteration, propagate marginal
-            # forward in time
-        p = pstep
+                # Forward calculations
+                # Recursive calculation to save time
+                last_joint = self.probabilities[x, i - 1]
+                jump_prob = currentR[jump_state, current_state]
+                self.probabilities[x, i] = last_joint * jump_prob
 
+                bar.update()
 
-    bar.finish()
+            # Finished data gathering for this iteration, propagate marginal
+                # forward in time
+            p = pstep
 
+        bar.finish()
 
-    #------------- Typical set bounds and generation -------------#
+        #------------- Typical set bounds and generation -------------#
 
-    TS_upper = entropy_rate_vs_time + epsilon
-    TS_lower = entropy_rate_vs_time - epsilon
+        ns = np.arange(1, self.path_length + 1)
 
-    path_entropy_rates = -np.log(path_probabilities) / ns
+        self.lower_bound = np.exp(-ns * (entropy_rate_vs_time + self.epsilon))
+        self.upper_bound = np.exp(-ns * (entropy_rate_vs_time - self.epsilon))
 
-    # Identify the paths that are typical and atypical
-    # Populate the sets
-    for path_index, path_entropy_rate in enumerate(path_entropy_rates):
+        self.path_typicalities = []
 
-        # Information for typical set and sampled_set
-        path_info = [
-            paths[path_index],
-            # The list of the probability this path observed with each
-                # added state
-            path_probabilities[path_index],
-            # List of bools where the True means the path is typical at this
-                # step, False if it is atypical
-            # If the last element is True then this tuple is added to the
-                # typical set
-            (TS_lower < path_entropy_rate) & (path_entropy_rate < TS_upper)
-        ]
+        # Identify the paths that are typical and atypical
+        for path_probs in self.probabilities:
 
-        # The path is considered typical at the end of the observation
-        # Append the 3-tuple to the typical set
-        if path_info[-1][-1]:
-            typical_set.append( tuple(path_info[:-1]) )
-
-        sampled_set.append( tuple(path_info) )
-
-
-    #------------- Analysis & Printing -------------#
-
-    percent_typical = f'{len(typical_set) / num_paths * 100:.1f}'
-    print(f'{percent_typical}% of tested paths are typical.')
-
-
-    return typical_set, sampled_set, (TS_lower, TS_upper)
+            # Array of bools determining when a path is typical or atypical
+            self.path_typicalities.append(
+                (self.lower_bound < path_probs) \
+                & (path_probs < self.upper_bound)
+            )
 
 
 #------------- Entry code -------------#
@@ -237,6 +230,7 @@ def typical_set(R, p, paths, time_step=1, epsilon=1):
 
 def main():
     print('typical_set.py')
+    
     
 
 if __name__ == '__main__':

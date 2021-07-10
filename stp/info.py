@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Entropy and information related calculations..
+"""Entropy and information theory related calculations.
 
 **Author: Jonathan Delgado**
 
@@ -34,22 +34,22 @@ def _eps_filter(x):
 
 
 def entropy(p):
-    """ Calculates the Shannon expression for a probability distribution.
+    """ Calculates the Shannon entropy for a marginal distribution.
 
         Args:
-            p (np.ndarray): the probability distribution to calculate the entropy for
+            p (np.ndarray): the marginal distribution.
 
         Returns:
             (float): the entropy of p
 
     """
-    # Since zeros do not contribute to the Shannon entropy anyways, we ignore 
-        # them
+    # Since zeros do not contribute to the Shannon entropy by definition, we 
+        # ignore them to avoid any errors/warnings.
     p = p[p != 0]
 
-    KL = -np.dot(p, np.log(p))
+    H = -np.dot(p, np.log(p))
     # Filter against machine epsilon
-    return _eps_filter(KL)
+    return _eps_filter(H)
 
 
 def delta_entropy(R, p):
@@ -57,8 +57,9 @@ def delta_entropy(R, p):
         evolved with R, minus the entropy of p.
     
         Args:
-            R (np.ndarray): the transition matrix
-            p (np.ndarray): the marginal distribution
+            R (np.ndarray): the transition matrix.
+
+            p (np.ndarray): the marginal distribution.
     
         Returns:
             (float): the change in entropy
@@ -72,10 +73,10 @@ def relative_entropy(p, q):
         vanishes if and only if the distributions coincide.
     
         Args:
-            p, q (np.ndarray): the probability distributions
+            p, q (np.ndarray): the probability distributions.
     
         Returns:
-            (float): the relative entropy
+            (float): the relative entropy.
     
     """
     if p.shape[0] != q.shape[0]:
@@ -95,21 +96,6 @@ def relative_entropy(p, q):
     return np.dot(p_filtered, log_ratio)
 
 
-def landauer_bound(beta):
-    """ Calculates the Landauer bound using beta (proportional to the inverse 
-        temperature) as a parameter. This allows for freedom in setting Boltzmann's constant externally to this calculation.
-        
-        Args:
-            beta (float): 1/kT
-    
-        Returns:
-            (float): the Landauer bound
-    
-    """
-    # 1/beta ln(2) = ln2 / beta = kTln2
-    return np.log(2) / beta
-
-
 def entropy_production(matrix, p, discrete=True):
     """ Calculates the entropy production for either discrete or continuous 
         time.
@@ -119,6 +105,7 @@ def entropy_production(matrix, p, discrete=True):
 
             p (np.ndarray): the marginal distribution
 
+        Kwargs:
             discrete (bool): True if we are calculating the discrete time entropy production (nats), False if we are calculating it in continuous time (nats/time).
     
         Returns:

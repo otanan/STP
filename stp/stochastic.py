@@ -17,9 +17,6 @@ import bisect # for binary search
 import stp.tools.gui as gui
 
 
-######################## Constructors ########################
-
-
 # The random number generator to be used
 # _RNG = np.random.default_rng(seed=0) # Seeded one for testing
 _RNG = np.random.default_rng()
@@ -28,9 +25,12 @@ _RNG = np.random.default_rng()
 MACHINE_EPSILON = np.finfo(float).eps
 
 
+######################## Constructors ########################
+
+
 def rand_p(n=2, zeros=0):
     """ Creates a random probability distribution, currently implemented only 
-        with the uniform sampling.
+        with uniform sampling.
     
         Kwargs:
             n (int): the dimension of the desired distribution
@@ -99,7 +99,7 @@ def rate_to_transition_matrix(W, time_step):
 
 
 def rand_transition_matrix(n=2, time_step=1.0):
-    """ Generates a random, time-independent, discrete-time, transition matrix
+    """ Generates a random, time-independent, discrete time, transition matrix
         by first generating a random rate matrix and then matrix exponentiating it to incorporate the time step as an additional parameter.
     
         Kwargs:
@@ -258,13 +258,13 @@ def get_path_probability(R, p, path):
             (float): the probability of observing this path.
     
     """
-    # Check if R is written as a numpy matrix, if so, convert it to a function
+    # Check if R is time-independent, if so, convert it to a function
         # of the observation step that simply returns the constant matrix.
-    if isinstance(R, np.ndarray):
+    if not callable(R):
         matrix = R
         R = lambda n: matrix
 
-    # Comprehension to collect transition probabilities for vectored product
+    # Comprehension to collect transition probabilities for vectorized product
     total_jump_prob = np.array([
         R(i + 1)[path[i+1], path[i]]
         for i in range( len(path) - 1 )
@@ -316,7 +316,7 @@ def KMC(W, p, num_paths, final_time, time_step=1, discrete=True, degenerate_thre
         the time evolution of a system, where some processes can occur with known rates W = W(t). From: https://en.wikipedia.org/wiki/Kinetic_Monte_Carlo.
         
         Args:
-            W (np.ndarray/function): rate matrix for np.ndarray. If function is provided then W is the function of time that provides a rate matrix (W = W(t)) for each moment in time. Will be used to implement driven systems. If W is just a rate matrix then W is just the time-homogeneous rate matrix.
+            W (np.ndarray/function): rate matrix for np.ndarray. If function is provided then W is the function of time that provides a rate matrix (W = W(t)) for each moment in time. Will be used to implement driven systems. If W is just a rate matrix then W(t) is just the time-homogeneous rate matrix.
 
             p (np.ndarray): the initial marginal distribution.
 
@@ -467,18 +467,16 @@ def KMC(W, p, num_paths, final_time, time_step=1, discrete=True, degenerate_thre
 
 
 def direct_sampling(R, p):
-    """ Samples the path space directly to reflect the dynamics given by the 
-        initial marginal and the transition matrix.
+    """ Not yet been implemented: Samples the path space directly to reflect 
+        the dynamics given by the initial marginal and the transition matrix.
         
         Args:
-            arg1 (arg1 type): arg1 description.
-    
-        Kwargs:
-            karg1 (arg1 type): arg1 description.
-    
-    
+            R (function/np.ndarray): the (possibly time-dependent) transition matrix.
+
+            p (np.ndarray): the marginal distribution.
+     
         Returns:
-            (None): none
+            (np.ndarray): the sampled portion of the path space.
     
     """
     print('Direct sampling has not been implemented yet.')
