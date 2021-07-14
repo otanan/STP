@@ -8,7 +8,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='stp',
-    version='0.0.1.0',
+    version='0.0.1.2',
     description='Stochastic Thermodynamics in Python',
     license='MIT',
     url='https://github.com/otanan/STP',

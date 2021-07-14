@@ -98,48 +98,355 @@ def verify_TS(typical_set, R, epsilon):
     print(f'Theorem 3.1.2.4 satisfied: {num_typical > lower_bound}.')
 
 
-######################## Main body ########################
+######################## Information Space Object ########################
 
-
-class TypicalSet:
-    """ Typical set object. Holds path probabilities, typical paths, atypical 
-        paths, atypical path probabilities and more.
-    
-        This object will use a provided (often sampled) path space to partition the space into a collection of typical and atypical paths depending on the dynamics provided. Will also track other quantities of interest such as the upper and lower bounds on the path probabilities required for the paths to be considered typical.
+class InfoSpace:
+    """ Information space. Holds collections of paths that traverse states in a 
+        state space as a matrix, and the probability of each of those paths. 
+        
+        Provides functionality on this path space such as providing path entropies.
         
         Attributes:
-            epsilon: the width of the neighborhood used for paths to be considered typical.
+            paths: the matrix of paths.
 
-            num_paths: the number of paths considered (typical + atypical).
+            probabilities: a list of probabilities each path.
+
+            num_paths: the number of paths considered.
 
             path_length: the length of the paths considered.
 
-            paths: a numpy matrix holding paths as rows and the nth column will correspond to the nth state observed for each path.
+            probabilities: a matrix where the (i,j)th element is the probability of observing the first j states of the ith path.
+
+            entropies: a list of path entropies for each path
+    """
+
+    def __init__(self, paths, p_matrix):
+        """ Initializes the InfoSpace object.
+            
+            Args:
+                paths (np.ndarray): a matrix of paths where the (i,j)th element corresponds to the jth symbol of the ith path.
+
+                p_matrix (np.ndarray): a matrix of probabilities where the (i,j)th element corresponds to the probability of observing the ith path for the first j+1 (zero-indexing) symbols.
+        
+        """
+        self._paths = np.array(paths)
+        # Matrix of probabilities corresponding to the probability for the path
+            # at each moment.
+        self._p_matrix = np.array(p_matrix)
+        
+        if self._p_matrix.size != 0:
+            # The typical set is not empty
+            self._probabilities = self._p_matrix[:, -1]
+
+
+    #------------- Properties -------------#
+
+
+    @property
+    def paths(self):
+        return self._paths
+
+
+    @property
+    def num_paths(self):
+        return self.paths.shape[0]
+
+
+    @property
+    def path_length(self):
+        return self.paths.shape[1]
+    
+
+    @property
+    def probabilities(self):
+        return self._probabilities
+
+
+    @property
+    def entropies(self):
+        """ Returns a list of path entropies for each corresponding path 
+            probability.
+
+        """
+        try:
+            return self._entropies
+        except AttributeError:
+            # It's never been calculated before
+            self._entropies = -np.log(self.probabilities)
+
+        return self._entropies
+
+
+    #------------- Static methods -------------#
+
+
+    @staticmethod
+    def shorten(infospace, path_length):
+        """ Takes an Information Space and shortens it. Since unique paths of 
+            length n, may be degenerate when truncated to paths of length m < n, we need to check for degeneracies and filter them out in both paths and probabilities.
+            
+            Args:
+                infospace (InfoSpace): the information space to shorten.
+
+                path_length (int): the path length the information space should be shortened to.        
+        
+            Returns:
+                (InfoSpace): the shortened InfoSpace.
+        
+        """
+        # Truncate the path matrix
+        paths = infospace.paths[:, :path_length]
+        # Return index will provide the path indices of the non-degenerate paths
+        _, indices = np.unique(paths, axis=0, return_index=True)
+        # Sort the indices
+        indices = sorted(indices)
+        # Filter out the paths. Not taken from np.unique to ensure the correct
+            # ordering.
+        paths = paths[indices, :]
+        # Truncate the probability matrix
+        p_matrix = infospace._p_matrix[:, :path_length]
+        # Filter the probabilities matrix
+        p_matrix = p_matrix[indices, :]
+
+        return InfoSpace(paths, _p_matrix)
+
+
+######################## Main body ########################
+
+
+class PartitionedInfoSpace(InfoSpace):
+    """ Partitioned Information Space. Constructs a typical set on an 
+        information space to partition it into a typical information space and an atypical one. 
+
+        Holds path probabilities, typical paths, atypical paths, atypical path probabilities and more. This object will use a provided (often sampled) path space to partition the space into a collection of typical and atypical paths depending on the dynamics provided. Will also track other quantities of interest such as the upper and lower bounds on the path probabilities required for the paths to be considered typical.
+    
+        Attributes:
+            paths: the matrix of paths.
+
+            probabilities: a list of probabilities each path.
+
+            num_paths: the number of paths considered.
+
+            path_length: the length of the paths considered.
 
             probabilities: a matrix where the (i,j)th element is the probability of observing the first j states of the ith path.
 
-            path_typicalities: a matrix where the (i,j)th element is a boolean determining whether the ith path is typical after j steps.
+            entropies: a list of path entropies for each path.
 
-            upper_bound: a list of upper bounds versus symbols observed corresponding to the upper bound for paths probabilities for the path to be considered typical.
+            entropy_rates: a list of the entropy rates for each various path length. This will be the center of the epsilon-neighborhood for path entropies to qualify paths as typical for.
 
-            lower_bound: the lower bound analogous to the upper bound.
+            epsilon: the widths of the neighborhood used for paths to be considered typical for each path length.
+
+            upper/lower: the upper/lower bounds on path entropies for a path to be considered typical for each path length.
+
+            typicalities: a matrix where the (i,j)th element is a boolean determining whether the ith path is typical after j+1 steps.
+
+            ts: the typical set.
+
+            ats: the atypical set.
+
     """
-    def __init__(self, R, p, paths, epsilon=1):
-        """ Samples a path space and generates a typical set on this space.
+
+    def __init__(self, typical_space, atypical_space, entropy_rates, epsilon, typicalities=None):
+        """ Generates the PartitionedInfoSpace.
+            
+            Args:
+                typical_space (InfoSpace): the typical set on this space.
+
+                atypical_space (InfoSpace): the atypical set on this space.
+
+                entropy_rates (np.ndarray): a list of the entropy rates for each various path length. This will be the center of the epsilon-neighborhood for path entropies to qualify paths as typical for.
+
+                epsilon (np.ndarray): the widths of the neighborhood used for paths to be considered typical for each path length.
+
+            Kwarrg:
+                typicalities (np.ndarray/None): a matrix where the (i,j)th element is a boolean determining whether the ith path is typical after j+1 steps. Calculated from other quantities if None is provided.
+        
+        """
+        # Combine the path data
+        if (typical_space.paths.size != 0) and (atypical_space.paths.size != 0):
+            # Both are nonempty
+            self._paths = np.vstack((typical_space.paths, atypical_space.paths))
+            self._p_matrix = np.vstack((typical_space._p_matrix, atypical_space._p_matrix))
+        elif typical_space.paths.size == 0:
+            # Only the typical_space is empty
+            self._paths = atypical_space.paths
+            self._p_matrix = atypical_space._p_matrix
+        else:
+            # Only the atypical_space is empty
+            self._paths = typical_space.paths
+            self._p_matrix = typical_space._p_matrix
+
+        self._probabilities = self._p_matrix[:, -1]
+
+        self._entropy_rates = entropy_rates
+
+        if isinstance(epsilon, list):
+            epsilon = np.array(epsilon)
+        if not isinstance(epsilon, np.ndarray):
+            # We were only provided a float
+            epsilon = np.full(self.path_length, epsilon)
+        self._epsilon = epsilon
+
+        self._typicalities = typicalities
+
+        self._ts = typical_space
+        self._ats = atypical_space
+
+
+    #------------- Properties -------------#
+
+
+    @property
+    def entropy_rates(self):
+        return self._entropy_rates
+    
+
+    @property
+    def epsilon(self):
+        return self._epsilon
+
+
+    @property
+    def upper(self):
+        try:
+            return self._upper
+        except AttributeError:
+            # It's never been calculated before
+            ns = np.arange(1, self.path_length + 1)
+
+            self._upper = -ns * (self.entropy_rates - self.epsilon)
+            # Lower is calculated similarly, so do it now
+            self._lower = -ns * (self.entropy_rates + self.epsilon)
+
+        return self._upper
+
+
+    @property
+    def lower(self):
+        try:
+            return self._lower
+        except AttributeError:
+            # It's never been calculated before.
+            # self.upper calculates the lower bound too.
+            # Trigger the calculation.
+            self.upper
+
+        return self._lower
+
+
+    @property
+    def typicalities(self):
+        """ Returns the matrix of typicalities. """
+        if self._typicalities == None:
+            # It's never been calculated before
+            typicalities = []
+
+            for path_entropy in -np.log(self._p_matrix):
+                # Check if and when the path is typical and append it
+                typicalities.append(
+                    (self.lower < path_entropy) & (path_entropy < self.upper)
+                )
+
+            self._typicalities = np.array(typicalities)
+
+        return self._typicalities
+
+
+    @property
+    def ats(self):
+        return self._ats
+
+
+    @property
+    def ts(self):
+        return self._ts
+    
+    
+    #------------- Static methods -------------#
+
+
+    @staticmethod
+    def shorten(pinfospace, path_length):
+        """ Takes a PartitionedInformationSpace and shortens it. Since unique 
+            paths of length n, may be degenerate when truncated to paths of length m < n, we need to check for degeneracies and filter them out in both paths and probabilities.
+            
+            Args:
+                pinfospace (PartitionedInfoSpace): the partitioned information space to shorten.
+
+                path_length (int): the path length the information space should be shortened to.        
+        
+            Returns:
+                (PartitionedInfoSpace): the shortened PartitionedInfoSpace.
+        
+        """
+        # Truncate the path matrix
+        paths = pinfospace.paths[:, :path_length]
+        # Return index will provide the path indices of the non-degenerate paths
+        _, indices = np.unique(paths, axis=0, return_index=True)
+        # Sort the indices
+        indices = sorted(indices)
+        # Filter out the paths. Not taken from np.unique to ensure the correct
+            # ordering.
+        paths = paths[indices, :]
+
+        # Truncate the probability matrix
+        p_matrix = pinfospace._p_matrix[:, :path_length]
+        # Filter the probabilities matrix
+        p_matrix = p_matrix[indices, :]
+        
+        # Truncate the entropy_rates
+        entropy_rates = pinfospace.entropy_rates[:path_length]
+
+        # Truncate the epsilon
+        epsilon = pinfospace.epsilon[:path_length]
+
+        # Truncate the typicalities matrix
+        # Necessary to re-partition the space.
+        typicalities = pinfospace.typicalities[:, :path_length]
+        # Filter out the typicalities matrix
+        typicalities = typicalities[indices, :]
+
+        ### Partitioning ###
+        ts_paths, ts_p_matrix = [], []
+        ats_paths, ats_p_matrix = [], []
+
+        for path_index, is_typical in enumerate(typicalities[:, -1]):
+            path = path[path_index]
+            probs = p_matrix[path_index]
+
+            if is_typical:
+                ts_paths.append(path)
+                ts_p_matrix.append(probs)
+            else:
+                ats_paths.append(path)
+                ats_p_matrix.append(probs)
+
+        # The partitioned spaces
+        ts = InfoSpace(ts_paths, ts_p_matrix)
+        ats = InfoSpace(ats_paths, ats_p_matrix)
+
+        return PartitionedInfoSpace(ts, ats, entropy_rates, epsilon, typicalities)
+
+
+    @staticmethod
+    def partition_space(R, p, paths, epsilon=1):
+        """ Partitions a path space using the dynamics provided.
 
             Args:
-                R (np.ndarray/function): the transition matrix, time-dependent if provided as a function
+                R (np.ndarray/function): the transition matrix, time-dependent if provided as a function.
 
-                p (np.ndarray): the initial marginal distribution
+                p (np.ndarray): the initial marginal distribution.
 
                 paths (np.ndarray): the portion of the path space to use.
         
             Kwargs:
-                epsilon (float): the epsilon neighborhood to consider paths to be typical within
+                epsilon (float/np.ndarray): the radius/radii of the epsilon neighborhood to consider paths to be typical within.
         
+            Returns:
+                (2-tuple): the PartitionedInfoSpace and a list of the marginal versus observation step.
+
         """
-        self.epsilon = epsilon
-        self.paths = paths
 
         #------------- Data preparation -------------#
 
@@ -155,27 +462,30 @@ class TypicalSet:
         # The number of states
         n = len(p)
 
-        self.num_paths, self.path_length = paths.shape
+        num_paths, path_length = paths.shape
 
-        self.probabilities = np.zeros(paths.shape)
+        p_matrix = np.zeros(paths.shape)
         # Initialize the marginal distribution data
-        for x, path in enumerate(self.paths):
+        for x, path in enumerate(paths):
             # Just equal to the initial marginal
-            self.probabilities[x, 0] = p[path[0]]
+            p_matrix[x, 0] = p[path[0]]
 
         # Used for the bounds
         entropy_rate = info.entropy_rate(R)
-        entropy_rate_vs_time = np.array([
+        entropy_rates = np.array([
             entropy_rate(i)
-            for i in range(self.path_length)
+            for i in range(path_length)
         ])
+
+        # The marginal versus time
+        p_vs_time = [p]
 
         #------------- Data gathering -------------#
 
-        bar = gui.ProgressBar(self.path_length * self.num_paths, width=300, title='Gathering data...')
+        bar = gui.ProgressBar(path_length * num_paths, width=300, title='Gathering data...')
         
         ### Quantities versus time ###
-        for current_path_length in range(2, self.path_length + 1):
+        for current_path_length in range(2, path_length + 1):
             # The data index
             i = current_path_length - 1
             # Since the marginals are zero-indexed as are the paths
@@ -194,35 +504,61 @@ class TypicalSet:
 
                 # Forward calculations
                 # Recursive calculation to save time
-                last_joint = self.probabilities[x, i - 1]
+                last_joint = p_matrix[x, i - 1]
                 jump_prob = currentR[jump_state, current_state]
-                self.probabilities[x, i] = last_joint * jump_prob
+                p_matrix[x, i] = last_joint * jump_prob
 
                 bar.update()
 
             # Finished data gathering for this iteration, propagate marginal
                 # forward in time
+            p_vs_time.append(pstep)
             p = pstep
 
         bar.finish()
 
-        #------------- Typical set bounds and generation -------------#
+        ### Partitioning ###
 
-        ns = np.arange(1, self.path_length + 1)
+        ns = np.arange(1, path_length + 1)
 
-        self.lower_bound = np.exp(-ns * (entropy_rate_vs_time + self.epsilon))
-        self.upper_bound = np.exp(-ns * (entropy_rate_vs_time - self.epsilon))
+        lower = -ns * (entropy_rates + epsilon)
+        upper = -ns * (entropy_rates - epsilon)
 
-        self.path_typicalities = []
+        typicalities = []
+
+        ts_paths, ts_p_matrix = [], []
+        ats_paths, ats_p_matrix = [], []
 
         # Identify the paths that are typical and atypical
-        for path_probs in self.probabilities:
+        for path_index, path_entropy in enumerate(-np.log(p_matrix)):
 
-            # Array of bools determining when a path is typical or atypical
-            self.path_typicalities.append(
-                (self.lower_bound < path_probs) \
-                & (path_probs < self.upper_bound)
+            typicalities.append(
+                (lower < path_entropy) & (path_entropy < upper)
             )
+
+            probs = p_matrix[path_index, :]
+
+            # Whether this path is typical
+            is_typical = typicalities[-1][-1]
+
+            if is_typical:
+                ts_paths.append(path)
+                ts_p_matrix.append(probs)
+            else:
+                ats_paths.append(path)
+                ats_p_matrix.append(probs)
+
+        # The partitioned spaces
+        ts = InfoSpace(ts_paths, ts_p_matrix)
+        ats = InfoSpace(ats_paths, ats_p_matrix)
+
+        pinfospace = PartitionedInfoSpace(ts, ats, entropy_rates, epsilon, typicalities)
+
+        # Set pre-calculated properties
+        pinfospace._upper = upper
+        pinfospace._lower = lower
+
+        return pinfospace, p_vs_time
 
 
 #------------- Entry code -------------#
@@ -230,6 +566,13 @@ class TypicalSet:
 
 def main():
     print('typical_set.py')
+
+    ### Testing ###
+    p = stp.rand_p(3)
+    R = stp.self_assembly_transition_matrix()
+    paths = stp.complete_path_space(3, 4)
+    pinfospace, _ = PartitionedInfoSpace.partition_space(R, p, paths)
+    print(pinfospace.ats.num_paths)
     
     
 

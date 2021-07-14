@@ -452,7 +452,7 @@ def KMC(W, p, num_paths, final_time, time_step=1, discrete=True, degenerate_thre
 
     #------------- Body -------------#
 
-    if isinstance(W, np.ndarray):
+    if not callable(W):
         # Hold the rate matrix in memory.
         constW = W
         # Let the time-dependent rate matrix just be the constant matrix.
