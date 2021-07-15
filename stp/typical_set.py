@@ -237,7 +237,7 @@ class PartitionedInfoSpace(InfoSpace):
 
             epsilon: the widths of the neighborhood used for paths to be considered typical for each path length.
 
-            upper/lower: the upper/lower bounds on path entropies for a path to be considered typical for each path length.
+            upper/lower: the upper/lower bounds as measured in nats. This means that a path is typical if and only if its path entropy rate is within these bounds.
 
             typicalities: a matrix where the (i,j)th element is a boolean determining whether the ith path is typical after j+1 steps.
 
@@ -247,7 +247,7 @@ class PartitionedInfoSpace(InfoSpace):
 
     """
 
-    def __init__(self, typical_space, atypical_space, entropy_rates, epsilon, typicalities=None):
+    def __init__(self, typical_space, atypical_space, entropy_rates, epsilon):
         """ Generates the PartitionedInfoSpace.
             
             Args:
@@ -258,9 +258,6 @@ class PartitionedInfoSpace(InfoSpace):
                 entropy_rates (np.ndarray): a list of the entropy rates for each various path length. This will be the center of the epsilon-neighborhood for path entropies to qualify paths as typical for.
 
                 epsilon (np.ndarray): the widths of the neighborhood used for paths to be considered typical for each path length.
-
-            Kwarrg:
-                typicalities (np.ndarray/None): a matrix where the (i,j)th element is a boolean determining whether the ith path is typical after j+1 steps. Calculated from other quantities if None is provided.
         
         """
         # Combine the path data
@@ -288,8 +285,6 @@ class PartitionedInfoSpace(InfoSpace):
             epsilon = np.full(self.path_length, epsilon)
         self._epsilon = epsilon
 
-        self._typicalities = typicalities
-
         self._ts = typical_space
         self._ats = atypical_space
 
@@ -314,10 +309,10 @@ class PartitionedInfoSpace(InfoSpace):
         except AttributeError:
             # It's never been calculated before
             ns = np.arange(1, self.path_length + 1)
-
-            self._upper = -ns * (self.entropy_rates - self.epsilon)
+            
+            self._upper = self.entropy_rates + self.epsilon
             # Lower is calculated similarly, so do it now
-            self._lower = -ns * (self.entropy_rates + self.epsilon)
+            self._lower = self.entropy_rates - self.epsilon
 
         return self._upper
 
@@ -338,14 +333,18 @@ class PartitionedInfoSpace(InfoSpace):
     @property
     def typicalities(self):
         """ Returns the matrix of typicalities. """
-        if self._typicalities == None:
+        try:
+            return self._typicalities
+        except AttributeError:
             # It's never been calculated before
             typicalities = []
+            ns = np.arange(1, self.path_length + 1)
 
             for path_entropy in -np.log(self._p_matrix):
+                path_entropy_rate = path_entropy / ns
                 # Check if and when the path is typical and append it
                 typicalities.append(
-                    (self.lower < path_entropy) & (path_entropy < self.upper)
+                    (self.lower < path_entropy_rate) & (path_entropy_rate < self.upper)
                 )
 
             self._typicalities = np.array(typicalities)
@@ -367,14 +366,17 @@ class PartitionedInfoSpace(InfoSpace):
 
 
     @staticmethod
-    def shorten(pinfospace, path_length):
+    def shorten(pinfospace, path_length, return_index=False):
         """ Takes a PartitionedInformationSpace and shortens it. Since unique 
             paths of length n, may be degenerate when truncated to paths of length m < n, we need to check for degeneracies and filter them out in both paths and probabilities.
             
             Args:
                 pinfospace (PartitionedInfoSpace): the partitioned information space to shorten.
 
-                path_length (int): the path length the information space should be shortened to.        
+                path_length (int): the path length the information space should be shortened to.    
+
+            Kwargs:
+                return_index (bool): returns the indices of the non-degenerate paths for the given path length using the original matrix. Useful for filtering other quantities of interest that may not be attached to this object.    
         
             Returns:
                 (PartitionedInfoSpace): the shortened PartitionedInfoSpace.
@@ -426,11 +428,12 @@ class PartitionedInfoSpace(InfoSpace):
         ts = InfoSpace(ts_paths, ts_p_matrix)
         ats = InfoSpace(ats_paths, ats_p_matrix)
 
-        return PartitionedInfoSpace(ts, ats, entropy_rates, epsilon, typicalities)
+        pinfospace = PartitionedInfoSpace(ts, ats, entropy_rates, epsilon, typicalities)
+        return pinfospace if not return_index else pinfospace, indices
 
 
     @staticmethod
-    def partition_space(R, p, paths, epsilon=1):
+    def partition_space(R, p, paths, epsilon=0.5, return_p=False):
         """ Partitions a path space using the dynamics provided.
 
             Args:
@@ -442,9 +445,11 @@ class PartitionedInfoSpace(InfoSpace):
         
             Kwargs:
                 epsilon (float/np.ndarray): the radius/radii of the epsilon neighborhood to consider paths to be typical within.
+
+                return_p (bool): False, return only the PartitionedInfoSpace, True returns both the PartitionedInfoSpace and a list of the marginal vs time.
         
             Returns:
-                (2-tuple): the PartitionedInfoSpace and a list of the marginal versus observation step.
+                (ParitionedInfoSpace/2-tuple): the PartitionedInfoSpace (PIS) or the PIS and a list of the marginal versus observation step if return_p is True.
 
         """
 
@@ -459,9 +464,6 @@ class PartitionedInfoSpace(InfoSpace):
             oldR = R
             R = lambda n : oldR
 
-        # The number of states
-        n = len(p)
-
         num_paths, path_length = paths.shape
 
         p_matrix = np.zeros(paths.shape)
@@ -469,21 +471,20 @@ class PartitionedInfoSpace(InfoSpace):
         for x, path in enumerate(paths):
             # Just equal to the initial marginal
             p_matrix[x, 0] = p[path[0]]
-
+        
         # Used for the bounds
-        entropy_rate = info.entropy_rate(R)
         entropy_rates = np.array([
-            entropy_rate(i)
+            info.entropy_rate(R(i))
             for i in range(path_length)
         ])
 
         # The marginal versus time
-        p_vs_time = [p]
+        if return_p: p_vs_time = [p]
 
         #------------- Data gathering -------------#
 
         bar = gui.ProgressBar(path_length * num_paths, width=300, title='Gathering data...')
-        
+
         ### Quantities versus time ###
         for current_path_length in range(2, path_length + 1):
             # The data index
@@ -508,11 +509,13 @@ class PartitionedInfoSpace(InfoSpace):
                 jump_prob = currentR[jump_state, current_state]
                 p_matrix[x, i] = last_joint * jump_prob
 
-                bar.update()
+            # If updated in each iteration, slows down the simulation 
+                # drastically
+            bar.update(amount=num_paths)
 
+            if return_p: p_vs_time.append(pstep)
             # Finished data gathering for this iteration, propagate marginal
                 # forward in time
-            p_vs_time.append(pstep)
             p = pstep
 
         bar.finish()
@@ -521,25 +524,23 @@ class PartitionedInfoSpace(InfoSpace):
 
         ns = np.arange(1, path_length + 1)
 
-        lower = -ns * (entropy_rates + epsilon)
-        upper = -ns * (entropy_rates - epsilon)
-
-        typicalities = []
+        upper = entropy_rates + epsilon
+        lower = entropy_rates - epsilon
 
         ts_paths, ts_p_matrix = [], []
         ats_paths, ats_p_matrix = [], []
 
         # Identify the paths that are typical and atypical
-        for path_index, path_entropy in enumerate(-np.log(p_matrix)):
+        for path_index, path_entropy in enumerate(-np.log(p_matrix[:, -1])):
 
-            typicalities.append(
-                (lower < path_entropy) & (path_entropy < upper)
-            )
+            path_entropy_rate = path_entropy / path_length
 
-            probs = p_matrix[path_index, :]
+            # Can't create typicality matrix since partitioning it will
+                # break the ordering
+            # Determines whether this path is ultimately typical
+            is_typical = (lower[-1] < path_entropy_rate) and (path_entropy_rate < upper[-1])
 
-            # Whether this path is typical
-            is_typical = typicalities[-1][-1]
+            probs = p_matrix[path_index]
 
             if is_typical:
                 ts_paths.append(path)
@@ -552,13 +553,13 @@ class PartitionedInfoSpace(InfoSpace):
         ts = InfoSpace(ts_paths, ts_p_matrix)
         ats = InfoSpace(ats_paths, ats_p_matrix)
 
-        pinfospace = PartitionedInfoSpace(ts, ats, entropy_rates, epsilon, typicalities)
+        pinfospace = PartitionedInfoSpace(ts, ats, entropy_rates, epsilon)
 
         # Set pre-calculated properties
         pinfospace._upper = upper
         pinfospace._lower = lower
 
-        return pinfospace, p_vs_time
+        return (pinfospace, p_vs_time) if return_p else pinfospace
 
 
 #------------- Entry code -------------#
@@ -573,8 +574,7 @@ def main():
     paths = stp.complete_path_space(3, 4)
     pinfospace, _ = PartitionedInfoSpace.partition_space(R, p, paths)
     print(pinfospace.ats.num_paths)
-    
-    
+
 
 if __name__ == '__main__':
     main()
