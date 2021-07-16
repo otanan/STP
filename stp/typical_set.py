@@ -181,14 +181,17 @@ class InfoSpace:
 
 
     @staticmethod
-    def shorten(infospace, path_length):
+    def shorten(infospace, path_length, return_index=False):
         """ Takes an Information Space and shortens it. Since unique paths of 
             length n, may be degenerate when truncated to paths of length m < n, we need to check for degeneracies and filter them out in both paths and probabilities.
             
             Args:
                 infospace (InfoSpace): the information space to shorten.
 
-                path_length (int): the path length the information space should be shortened to.        
+                path_length (int): the path length the information space should be shortened to.
+
+            Kwargs:
+                return_index (bool): returns the indices of the non-degenerate paths for the given path length using the original matrix. Useful for filtering other quantities of interest that may not be attached to this object.      
         
             Returns:
                 (InfoSpace): the shortened InfoSpace.
@@ -208,7 +211,8 @@ class InfoSpace:
         # Filter the probabilities matrix
         p_matrix = p_matrix[indices, :]
 
-        return InfoSpace(paths, _p_matrix)
+        infospace = InfoSpace(paths, _p_matrix)
+        return infospace if not return_index else infospace, indices
 
 
 ######################## Main body ########################
@@ -382,21 +386,14 @@ class PartitionedInfoSpace(InfoSpace):
                 (PartitionedInfoSpace): the shortened PartitionedInfoSpace.
         
         """
-        # Truncate the path matrix
-        paths = pinfospace.paths[:, :path_length]
-        # Return index will provide the path indices of the non-degenerate paths
-        _, indices = np.unique(paths, axis=0, return_index=True)
-        # Sort the indices
-        indices = sorted(indices)
-        # Filter out the paths. Not taken from np.unique to ensure the correct
-            # ordering.
-        paths = paths[indices, :]
-
-        # Truncate the probability matrix
-        p_matrix = pinfospace._p_matrix[:, :path_length]
-        # Filter the probabilities matrix
-        p_matrix = p_matrix[indices, :]
+        # Call parent method
+        # Paths and p_matrix will be handled here along with any other 
+            # properties shared with parent. Sorted indices of non-degenerate 
+            # paths will be calculated here too.
+        pinfospace, indices = InfoSpace.shorten(pinfospace, path_length, return_index=True)
         
+        # Finish the rest of this object's specific properties
+
         # Truncate the entropy_rates
         entropy_rates = pinfospace.entropy_rates[:path_length]
 
@@ -483,7 +480,7 @@ class PartitionedInfoSpace(InfoSpace):
 
         #------------- Data gathering -------------#
 
-        bar = gui.ProgressBar(path_length * num_paths, width=300, title='Gathering data...')
+        # bar = gui.ProgressBar(path_length * num_paths, width=300, title='Gathering data...')
 
         ### Quantities versus time ###
         for current_path_length in range(2, path_length + 1):
@@ -511,14 +508,14 @@ class PartitionedInfoSpace(InfoSpace):
 
             # If updated in each iteration, slows down the simulation 
                 # drastically
-            bar.update(amount=num_paths)
+            # bar.update(amount=num_paths)
 
             if return_p: p_vs_time.append(pstep)
             # Finished data gathering for this iteration, propagate marginal
                 # forward in time
             p = pstep
 
-        bar.finish()
+        # bar.finish()
 
         ### Partitioning ###
 
