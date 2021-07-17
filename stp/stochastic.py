@@ -311,7 +311,7 @@ def complete_path_space(n, path_length):
     return np.array(paths)
 
 
-def KMC(W, p, num_paths, final_time, time_step=1, discrete=True, seed=None, degenerate_threshold=0.985):
+def KMC(W, p, num_paths, final_time, time_step=1, discrete=True, degenerate_threshold=0.985):
     """ A Rejection-free Kinetic Monte Carlo (KMC) algorithm for simulating 
         the time evolution of a system, where some processes can occur with known rates W = W(t). From: https://en.wikipedia.org/wiki/Kinetic_Monte_Carlo.
         
@@ -328,8 +328,6 @@ def KMC(W, p, num_paths, final_time, time_step=1, discrete=True, seed=None, dege
             time_step (float): the interval between changing of rate matrix (changing of control parameter), and the delay between observations.
 
             discrete (bool): True if the the simulation is for discrete time and hence the control parameter will be switched accordingly. If False the algorithm will be done for continuous time and will return the time series too.
-
-            seed (int/None): the option to seed the RNG. Leave as None to avoid seeding.
 
             degenerate_threshold (float): the fraction of paths that we require to be unique. If not satisfied KMC will be run again with an increased threshold.
     
