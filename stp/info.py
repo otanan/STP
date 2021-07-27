@@ -284,6 +284,8 @@ class InfoSpace:
         """
         if path_length < 1:
             raise ValueError(f'Invalid path length: {path_length}. Path length must be an integer greater than 0.')
+        elif path_length > infospace.path_length:
+            raise ValueError(f'Cannot shorten an InformationSpace from length: {infospace.path_length} -> {path_length}.')
 
         if infospace.paths.size == 0:
             # This is an empty information space
@@ -584,7 +586,7 @@ class PartitionedInfoSpace(InfoSpace):
         
         # Used for the bounds
         entropy_rates = np.array([
-            info.entropy_rate(R(i))
+            entropy_rate(R(i))
             for i in range(path_length)
         ])
 
@@ -659,7 +661,14 @@ class PartitionedInfoSpace(InfoSpace):
         ts = InfoSpace(ts_paths, ts_p_matrix)
         ats = InfoSpace(ats_paths, ats_p_matrix)
 
-        pinfospace = PartitionedInfoSpace(ts, ats, entropy_rates, epsilon)
+        pinfospace = PartitionedInfoSpace(
+            entropy_rates=entropy_rates,
+            epsilon=epsilon,
+            paths=paths,
+            p_matrix=p_matrix,
+            typical_space=ts,
+            atypical_space=ats
+        )
 
         # Set pre-calculated properties
         pinfospace._upper = upper

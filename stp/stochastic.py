@@ -60,19 +60,24 @@ def rand_p(n=2, zeros=0):
     return p / np.sum(p)
 
 
-def rand_rate_matrix(n=2):
+def rand_rate_matrix(n=2, seed=None):
     """ Generates a random, time-independent, n x n rate matrix consisting of 
         probabilities per unit time. Column normalized.
     
         Kwargs:
             n (int): the number of states the matrix will correspond to. Relates to the dimensions of the matrix.
+
+            seed (None/int): the seed for sampling. Unseeded (uses module-level rng) if None.
     
         Returns:
             (np.ndarray): the rate matrix.
     
     """
+    # Use module-level rng if no seed is provided, else, seed one
+    rng = _RNG if seed is None else np.random.default_rng(seed=seed)
+
     # Generates a random n x n matrix
-    W = _RNG.random( (n, n) )
+    W = rng.random( (n, n) )
 
     np.fill_diagonal(W, 0)
     # Normalize the columns to sum to zero.
@@ -311,9 +316,9 @@ def complete_path_space(n, path_length):
     return np.array(paths)
 
 
-def KMC(W, p, num_paths, final_time, time_step=1, discrete=True, degenerate_threshold=0.985):
+def KMC(W, p, num_paths, path_length, time_step=1, seed=None, _degenerate_threshold=0.985):
     """ A Rejection-free Kinetic Monte Carlo (KMC) algorithm for simulating 
-        the time evolution of a system, where some processes can occur with known rates W = W(t). From: https://en.wikipedia.org/wiki/Kinetic_Monte_Carlo.
+        the discrete time evolution of a system, where some processes can occur with known (continuous time) rates W = W(t). The discrete time dynamics will be computed using the continuous time rate matrix, W, by freezing the control parameter for moments of time, time_step. From: https://en.wikipedia.org/wiki/Kinetic_Monte_Carlo.
         
         Args:
             W (np.ndarray/function): rate matrix for np.ndarray. If function is provided then W is the function of time that provides a rate matrix (W = W(t)) for each moment in time. Will be used to implement driven systems. If W is just a rate matrix then W(t) is just the time-homogeneous rate matrix.
@@ -322,24 +327,26 @@ def KMC(W, p, num_paths, final_time, time_step=1, discrete=True, degenerate_thre
 
             num_paths (int): the number of paths to sample.
 
-            final_time (float): the final time.
+            path_length (int): the length of each path.
     
         Kwargs:
             time_step (float): the interval between changing of rate matrix (changing of control parameter), and the delay between observations.
 
-            discrete (bool): True if the the simulation is for discrete time and hence the control parameter will be switched accordingly. If False the algorithm will be done for continuous time and will return the time series too.
+            seed (None/int): the seed for sampling. Unseeded (uses module-level rng) if None.
 
-            degenerate_threshold (float): the fraction of paths that we require to be unique. If not satisfied KMC will be run again with an increased threshold.
+            _degenerate_threshold (float): the fraction of paths that we require to be unique. If not satisfied KMC will be run again with an increased threshold.
     
         Returns:
             (np.ndarray): matrix of paths sampled via KMC.
     
     """
+
+
     #------------- Helper functions -------------#
 
 
     def _KMC_jump(cumulatives, state):
-        """ Helper function which takes cumulatives, a state, and generates 
+        """ Helper: takes cumulatives, a state, and generates 
             the next likely jump via the KMC algorithm and the time it takes to observe the jump. Useful for discretizing the KMC.
             
             Args:
@@ -354,103 +361,19 @@ def KMC(W, p, num_paths, final_time, time_step=1, discrete=True, degenerate_thre
         # https://en.wikipedia.org/wiki/Kinetic_Monte_Carlo.
         # The cumulative relevant to the current state
         relevant_cumulative = cumulatives[:, state]
-        u = _RNG.uniform(0, 1)
+        u = rng.uniform(0, 1)
         scaled_total_rate = u * cumulatives[-1, state]
         next_state = bisect.bisect_left(relevant_cumulative, scaled_total_rate)
-        u = _RNG.uniform(0, 1)
+        u = rng.uniform(0, 1)
         jump_time = -np.log(u) / relevant_cumulative[-1]
 
         return next_state, jump_time
 
 
-    def _KMC_discrete(W, p, num_paths, final_time, time_step=1):
+    #------------- Initialization -------------#
 
-        #------------- Initialization -------------#
-
-        # Read off the size of the state space.
-        n = W(0).shape[0]
-        state_options = np.arange(n)
-        # Read off the path length for the full time series observations given 
-            # the final time and the delay between observations.
-        # For final_time, time_step, and path_length, the relationship is:
-        # time_step * (path_length - 1) = final_time, which implies that
-        path_length = int(final_time / time_step + 1)
-
-        # Initialize the matrix storing the paths
-        paths = np.full( (num_paths, path_length), -1, dtype='int64' )
-        # Set the first column of the matrix to be initial state weighted by p.
-        paths[:, 0] = _RNG.choice(state_options, p=p, size=num_paths)
-
-        # Fill each column
-        for k in range(1, path_length):
-            # This will find the current time of the control parameter to fix
-                # the rate matrix since this is discrete time.
-            current_time = k * time_step
-            # Fix the rate matrix
-            current_W = W(current_time)
-
-            #------------- Main algorithm -------------#
-
-            # We need to remove the normalization for the algorithm and just 
-                # look at the positive rates.
-            posW = current_W.copy()
-            np.fill_diagonal(posW, 0)
-            # Matrix of partial sums, last one being the total rate
-            # Each row corresponds to the same final index for the partial sum
-            # Each column corresponds to which rates were summed together
-            cumulatives = np.array( [ [ 
-                np.sum(posW[:i+1, x])
-                for i in range(n)
-            ]   for x in range(n)
-            ] ).T
-
-            # Run through the path matrix.
-            for path in paths:
-                current_state = path[k - 1]
-                # The state we are currently in is the last nonnegative 
-                    # element of our path list (since the path matrix is
-                    # initialized with -1)
-                # current_state = path[path >= 0][-1]
-                
-                total_jump_times = 0
-                # Prepare for the while loop
-                next_state = current_state
-                # Keep evolving the state until it fits what would be observed
-                    # in a discrete time process.
-                while total_jump_times < time_step:
-                    potential_jump, jump_time = _KMC_jump(cumulatives, next_state)
-                    
-                    # Note that if the next jump takes longer than our 
-                        # time_step we won't observe it. Since we will
-                        # make the measurement before this happens.
-                    if total_jump_times + jump_time >= time_step:
-                        break
-
-                    total_jump_times += jump_time
-                    next_state = potential_jump
-
-                path[k] = next_state
-
-        ### Degenerate paths check ###
-        # Check for degenerate paths and sample again if needed.
-        paths = np.unique(paths, axis=0)
-        if paths.shape[0] / num_paths < degenerate_threshold:
-            # Generate a rate matrix of perturbations
-            deltaW = rand_rate_matrix(n) / 100
-            Wprime = lambda t : W(t) + deltaW
-
-            # Run KMC again with an increased degeneracy threshold and 
-                # a perturbed rate matrix.
-            new_paths = KMC(Wprime, p, num_paths, final_time, time_step=time_step, discrete=discrete, degenerate_threshold=degenerate_threshold-10E-9)
-
-            # Combine the path data
-            paths = np.unique( np.vstack((paths, new_paths)), axis=0 )
-            
-        # Return only the requested number of paths (in case we have extras
-            # from previous degeneracies)
-        return paths[:num_paths]
-
-    #------------- Body -------------#
+    # Use module-level rng if no seed is provided, else, seed one
+    rng = _RNG if seed is None else np.random.default_rng(seed=seed)
 
     if not callable(W):
         # Hold the rate matrix in memory.
@@ -458,12 +381,88 @@ def KMC(W, p, num_paths, final_time, time_step=1, discrete=True, degenerate_thre
         # Let the time-dependent rate matrix just be the constant matrix.
         W = lambda t: constW
 
-    if discrete:
-        return _KMC_discrete(W, p, num_paths, final_time, time_step=time_step)
+    # Read off the size of the state space.
+    n = W(0).shape[0]
+    state_options = np.arange(n)
+    # Read off the final time for the full time series observations given 
+        # the path length and the delay between observations.
+    # For final_time, time_step, and path_length, the relationship is:
+    # time_step * (number of jumps) = final_time
+    final_time = time_step * (path_length - 1)
 
-    print('Continuous time KMC has not been implemented yet.')
-    print('Exiting...')
-    sys.exit()
+    # Initialize the matrix storing the paths
+    paths = np.full( (num_paths, path_length), -1, dtype='int64' )
+    # Set the first column of the matrix to be initial state weighted by p.
+    paths[:, 0] = rng.choice(state_options, p=p, size=num_paths)
+
+    # Fill each column
+    for k in range(1, path_length):
+        # This will find the current time of the control parameter to fix
+            # the rate matrix since this is discrete time.
+        current_time = k * time_step
+        # Fix the rate matrix
+        current_W = W(current_time)
+
+        #------------- Main algorithm -------------#
+
+        # We need to remove the normalization for the algorithm and just 
+            # look at the positive rates.
+        posW = current_W.copy()
+        np.fill_diagonal(posW, 0)
+        # Matrix of partial sums, last one being the total rate
+        # Each row corresponds to the same final index for the partial sum
+        # Each column corresponds to which rates were summed together
+        cumulatives = np.array( [ [ 
+            np.sum(posW[:i+1, x])
+            for i in range(n)
+        ]   for x in range(n)
+        ] ).T
+
+        # Run through the path matrix.
+        for path in paths:
+            current_state = path[k - 1]
+            # The state we are currently in is the last nonnegative 
+                # element of our path list (since the path matrix is
+                # initialized with -1)
+            # current_state = path[path >= 0][-1]
+            
+            total_jump_times = 0
+            # Prepare for the while loop
+            next_state = current_state
+            # Keep evolving the state until it fits what would be observed
+                # in a discrete time process.
+            while total_jump_times < time_step:
+                potential_jump, jump_time = _KMC_jump(cumulatives, next_state)
+                
+                # Note that if the next jump takes longer than our 
+                    # time_step we won't observe it. Since we will
+                    # make the measurement before this happens.
+                if total_jump_times + jump_time >= time_step:
+                    break
+
+                total_jump_times += jump_time
+                next_state = potential_jump
+
+            path[k] = next_state
+
+    ### Degenerate paths check ###
+    # Check for degenerate paths and sample again if needed.
+    paths = np.unique(paths, axis=0)
+    if paths.shape[0] / num_paths < _degenerate_threshold:
+        # Generate a rate matrix of perturbations
+        deltaW = rand_rate_matrix(n, seed=seed) / 100
+        Wprime = lambda t : W(t) + deltaW
+
+        # Run KMC again with an increased degeneracy threshold and 
+            # a perturbed rate matrix.
+        new_paths = KMC(Wprime, p, num_paths, path_length, time_step=time_step, seed=seed, _degenerate_threshold=_degenerate_threshold-10E-9)
+
+        # Combine the path data
+        paths = np.unique( np.vstack((paths, new_paths)), axis=0 )
+        
+    # Return only the requested number of paths (in case we have extra unique 
+        # ones from previous degeneracies)
+    return paths[:num_paths]
 
 
 def direct_sampling(R, p):
@@ -487,6 +486,18 @@ def direct_sampling(R, p):
 
 def main():
     print('stochastic.py')
+
+    W = self_assembly_transition_matrix()
+    p = np.array([1 - 2 * MACHINE_EPSILON, MACHINE_EPSILON, MACHINE_EPSILON])
+
+    paths = KMC(W, p, 500, 20, seed=0)
+    paths2 = KMC(W, p, 500, 20, seed=0)
+    print( f'paths.shape: {paths.shape}' )
+    
+    print( f'paths: {paths}' )
+    print( f'paths - paths2: {paths - paths2}' )
+    
+    
     
     
 if __name__ == '__main__':
