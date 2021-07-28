@@ -360,40 +360,81 @@ class PartitionedInfoSpace(InfoSpace):
                 atypical_space (InfoSpace): the atypical set on this space. If None, partitions the provided path space.
         
         """
-        if (
-            (paths is None) or (p_matrix is None)) and \
-            ((typical_space is None) or (atypical_space is None)
-        ):
+        # Bool if the space simply needs to be partitioned
+        must_partition = (paths is None) or (p_matrix is None)
+        # Bool if the space simply needs to be merged since it's already been 
+            # partitioned into a typical and atypical space
+        must_union = (typical_space is None) or (atypical_space is None)
+
+        if must_partition and must_union:
             # We need either the paths AND the p_matrix or the tupical/atypical 
                 # spaces to partition/union the spaces respectively.
             raise TypeError('In sufficient information provided to partition/union the Information Space. We need either paths with their probabilities or the already partitioned spaces.')
 
 
-        if (paths is None) or (p_matrix is None):
+        if must_partition:
+            # Partition the paths and probability matrix into a typical and
+                # atypical space
+
+            # Need to generate the upper/lower bounds for the partitioning
+                # of the spaces
+            self._lower = entropy_rates - epsilon
+            self._upper = entropy_rates + epsilon
+
+            ts_paths = []; ts_p_matrix = []
+            ats_paths = []; ats_p_matrix = []
+
+            for path, path_index in enumerate(paths):
+                path_prob = p_matrix[path_index]
+                # The path entropy rate for direct comparison with the
+                    # upper/lower bounds
+                path_entropy_rate = -np.log(path_prob[-1]) / path_length
+
+                is_typical = (
+                    (self.lower[-1] <= path_entropy_rate)
+                    and (path_entropy_rate <= self._upper)
+                )
+
+                if is_typical:
+                    ts_paths.append(path)
+                    ts_p_matrix.append(path_prob)
+                else:
+                    ats_paths.append(path)
+                    ats_p_matrix.append(path_prob)
+
+                typical_space = InfoSpace(ts_paths, ts_p_matrix)
+                atypical_space = InfoSpace(ats_paths, ats_p_matrix)
+
+        elif must_union:
             # Union the path data
-            if (
-                (typical_space.paths.size != 0)
-                and (atypical_space.paths.size != 0)
-            ):
+            ts_empty = (typical_space.paths.size == 0)
+            ats_empty = (atypical_space.paths.size == 0)
+
+            if not ts_empty and not ats_empty:
                 # Both are nonempty
-                self._paths = np.vstack((typical_space.paths, atypical_space.paths))
-                self._p_matrix = np.vstack((typical_space._p_matrix, atypical_space._p_matrix))
-            elif typical_space.paths.size == 0:
+                paths = np.vstack( (typical_space.paths, atypical_space.paths) )
+                p_matrix = np.vstack(
+                    (typical_space._p_matrix, atypical_space._p_matrix)
+                )
+            elif ts_empty:
                 # Only the typical_space is empty
-                self._paths = atypical_space.paths
-                self._p_matrix = atypical_space._p_matrix
+                paths = atypical_space.paths
+                p_matrix = atypical_space._p_matrix
             else:
                 # Only the atypical_space is empty
-                self._paths = typical_space.paths
-                self._p_matrix = typical_space._p_matrix
-        else:
-            self._paths = paths
-            self._p_matrix = p_matrix
+                paths = typical_space.paths
+                p_matrix = typical_space._p_matrix
+
+        ### Storing properties ###
+        self._paths = paths
+        self._p_matrix = p_matrix
 
         self._probabilities = self._p_matrix[:, -1]
 
         self._entropy_rates = entropy_rates
 
+        # Generalize the epsilon to a path_length dependent epsilon for
+            # potential generalizations in child classes.
         if isinstance(epsilon, list):
             epsilon = np.array(epsilon)
         if not isinstance(epsilon, np.ndarray):
@@ -424,11 +465,7 @@ class PartitionedInfoSpace(InfoSpace):
             return self._upper
         except AttributeError:
             # It's never been calculated before
-            ns = np.arange(1, self.path_length + 1)
-            
-            self._upper = self.entropy_rates + self.epsilon
-            # Lower is calculated similarly, so do it now
-            self._lower = self.entropy_rates - self.epsilon
+            self._upper = self.entropy_rates + self.epsilon        
 
         return self._upper
 
@@ -439,9 +476,7 @@ class PartitionedInfoSpace(InfoSpace):
             return self._lower
         except AttributeError:
             # It's never been calculated before.
-            # self.upper calculates the lower bound too.
-            # Trigger the calculation.
-            self.upper
+            self._lower = self.entropy_rates - self.epsilon
 
         return self._lower
 
@@ -458,8 +493,10 @@ class PartitionedInfoSpace(InfoSpace):
 
             path_entropy_rates = -np.log(self._p_matrix) / ns
 
-            self._typicalities = (self.lower < path_entropy_rates) \
-                                            & (path_entropy_rates < self.upper)
+            self._typicalities = (
+                (self.lower <= path_entropy_rates)
+                & (path_entropy_rates <= self.upper)
+            )
 
         return self._typicalities
 
@@ -646,7 +683,10 @@ class PartitionedInfoSpace(InfoSpace):
             # Can't create typicality matrix since partitioning it will
                 # break the ordering
             # Determines whether this path is ultimately typical
-            is_typical = (lower[-1] < path_entropy_rate) and (path_entropy_rate < upper[-1])
+            is_typical = (
+                (lower[-1] <= path_entropy_rate)
+                and (path_entropy_rate <= upper[-1])
+            )
 
             probs = p_matrix[path_index]
 
@@ -687,8 +727,10 @@ def main():
     p = stp.rand_p(3)
     R = stp.self_assembly_transition_matrix()
     paths = stp.complete_path_space(3, 4)
-    pinfospace, _ = PartitionedInfoSpace.partition_space(R, p, paths)
+    pinfospace = PartitionedInfoSpace.partition_space(R, p, paths)
+    print( f'pinfospace.total_probability: {pinfospace.total_probability}' )
     print(pinfospace.ats.num_paths)
+
 
 if __name__ == '__main__':
     main()
