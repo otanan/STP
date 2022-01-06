@@ -20,11 +20,6 @@ STP Information
 .. automodule:: stp.info
    :members:
 
-STP Typical Set
-=====================
-.. automodule:: stp.typical_set
-   :members:
-
 STP GUI
 ===================
 .. automodule:: stp.tools.gui

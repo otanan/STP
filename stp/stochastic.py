@@ -119,39 +119,32 @@ def rand_transition_matrix(n=2, time_step=1.0):
     return rate_to_transition_matrix(rand_rate_matrix(n), time_step)
 
 
-def self_assembly_rate_matrix(energy=1, c=1, M=1, T=1):
+def self_assembly_rate_matrix(alpha=1, c=1, M=1):
     """ Generates a self-assembly rate matrix for a 3-state system following:
         https://aip.scitation.org/doi/10.1063/1.3662140.
         
         Kwargs:
-            energy (float): the negative of the "optimally bound level of energy"
+            alpha (float/function): the energy/temperature coupled parameter as a float or a function which returns alpha as a function of time. In the latter case the returned rate matrix will be a function which provides a np.ndarray as a function of time. The energy is the negative of the "optimally bound level of energy".
 
-            c (float): "concentration-like variable"
+            c (float): "concentration-like variable".
 
-            M (int): the degeneracy of the misbound level
-
-            T (float/function): the temperature as a float or a function which returns the temperature as a function of time. In the latter case the returned rate matrix will be a function which provides a np.ndarray as a function of time.
-    
+            M (int): the degeneracy of the misbound level.
         Returns:
             (np.ndarray/function): the time-independent rate matrix as a numpy array in the case where the temperature is constant. Otherwise returns a function corresponding to the time-dependent rate matrix.
     
     """
-    if not isinstance(M, int):
-        print('The degeneracy of the misbound level, M, must be an integer.')
-        sys.exit()
+    if not callable(alpha) and alpha <= 0:
+        raise ValueError('Must provide a nonnegative alpha parameter.')
 
-    if not callable(T) and T <= 0:
-        print('Must provide a nonnegative temperature.')
-        sys.exit()
-
-    if callable(T):
+    if callable(alpha):
         # T is a time-dependent temperature
         # Provide the time-dependent rate matrix
-        return lambda t : self_assembly_rate_matrix(energy=energy, c=c, M=M, T=T(t))
+        return lambda t : self_assembly_rate_matrix(alpha=alpha(t), c=c, M=M)
+
+    # if not isinstance(M, int):
+    #     raise ValueError('The degeneracy of the misbound level, M, must be an integer.')
 
     ### Main body ###
-
-    alpha = np.exp(-energy / (2 * T))
     W = np.array([
         [   -c * (M + 1),   alpha,      alpha**2    ],
         [   c * M,          -alpha,     0           ],
@@ -161,35 +154,35 @@ def self_assembly_rate_matrix(energy=1, c=1, M=1, T=1):
     return W
 
 
-def self_assembly_transition_matrix(energy=1, c=1, M=1, T=1, time_step=1):
+def self_assembly_transition_matrix(alpha=1, c=1, M=1, time_step=1):
     """ Generates a self-assembly, discrete time, transition matrix for a 
         3-state system following: https://aip.scitation.org/doi/10.1063/1.3662140. Done assuming any external control parameter is fixed for the duration of the time_step. This matrix is step dependent, so conversions will be done to time to calculate the current temperature.
     
         Kwargs:
-            energy (float): the negative of the "optimally bound level of energy"
+            alpha (float/function): the energy/temperature coupled parameter as a float or a function which returns alpha as a function of time. In the latter case the returned transition matrix will be a function which provides a np.ndarray as a function of time. The energy is the negative of the "optimally bound level of energy". This external control parameter will be fixed for the duration of the time_step.
 
             c (float): "concentration-like variable"
 
             M (int): the degeneracy of the misbound level
 
-            T (float/function): the temperature as a float or a function which returns the temperature as a function of time. In the latter case the returned transition matrix will be a function which provides a np.ndarray as a function of time. This external control parameter will be fixed for the duration of the time_step.
-
             time_step (float): the time step
-    
-    
+        
         Returns:
             (np.ndarray/function): the transition matrix
     
     """
-    if callable(T):
+    if callable(alpha):
         # Convert n to time.
         # This also serves to fix the temperature between observations to change
             # the control parameter discretely.
-        R = lambda n : self_assembly_transition_matrix(energy=energy, c=c, M=M, T=T(n * time_step), time_step=time_step)
+        R = lambda n : self_assembly_transition_matrix(
+            alpha=alpha(n * time_step), c=c, M=M,
+            time_step=time_step
+        )
         return R
 
     return rate_to_transition_matrix(
-            self_assembly_rate_matrix(energy=energy, c=c, M=M, T=T),
+            self_assembly_rate_matrix(alpha=alpha, c=c, M=M),
             time_step
         )
 
@@ -487,7 +480,7 @@ def direct_sampling(R, p):
 def main():
     print('stochastic.py')
 
-    W = self_assembly_transition_matrix()
+    W = self_assembly_transition_matrix(alpha=lambda t : np.exp(-65/2*(0.25*np.cos(0.01*t)+0.32+0.1*t)))
     p = np.array([1 - 2 * MACHINE_EPSILON, MACHINE_EPSILON, MACHINE_EPSILON])
 
     paths = KMC(W, p, 500, 20, seed=0)
