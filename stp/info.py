@@ -294,7 +294,7 @@ class InfoSpace:
         # Truncate the path matrix
         paths = infospace.paths[:, :path_length]
         # Return index will provide the path indices of the non-degenerate paths
-        _, indices = np.unique(paths, axis=0, return_index=True)    
+        _, indices = np.unique(paths, axis=0, return_index=True)
         # Sort the indices
         indices = sorted(indices)
         # Filter out the paths. Not taken from np.unique to ensure the correct
