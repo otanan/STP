@@ -71,7 +71,7 @@ print(W(1))
 ```
 
 
-_For more examples, please refer to the [Documentation].
+_For more examples, please refer to the [Documentation]._
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
