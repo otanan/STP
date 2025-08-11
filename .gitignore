@@ -29,6 +29,9 @@ build
 # Egg-info for pip
 *.egg-info
 
+# Poetry
+poetry.lock
+
 #--- Custom files ---#
 # Archived files
 _archive
