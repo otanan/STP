@@ -3,7 +3,7 @@
 
 **Author: Jonathan Delgado**
 
-Allows access to unittests for RandQC.
+Allows access to unittests for STP.
 
 Todo:
     * Placeholder.

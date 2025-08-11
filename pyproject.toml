@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "stp"
+version = "0.0.1.2"
+description = "Stochastic Thermodynamics in Python"
+
+authors = ["Jonathan Delgado <jonathandelgado0327@gmail.com>"]
+homepage = "https://jdelgado.net/"
+repository = "https://github.com/otanan/STP"
+
+readme = "README.md"
+license = "GNU GENERAL PUBLIC LICENSE"
+include = ["LICENSE"]
+
+keywords = ['stochastic', 'thermodynamics', 'python', 'information']
+classifiers = [
+    'Development Status :: 3 - Alpha',
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.7",
+]
+
+[tool.poetry.dependencies]
+python = ">=3.7"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

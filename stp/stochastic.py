@@ -1,22 +1,18 @@
-#!/usr/bin/env python3
+#!/opt/homebrew/Caskroom/miniconda/base/envs/main/bin/python
 """Handles generating random objects to use in various calculations.
 
 **Author: Jonathan Delgado**
 
 """
-
-######################## Imports ########################
-
-
+#------------- Imports -------------#
 import sys
 import numpy as np
 import scipy.linalg
 import bisect # for binary search
-
-# For ProgressBar
-import stp.tools.gui as gui
-
-
+#--- Custom imports ---#
+#------------- Fields -------------#
+__version__ = '0.0.0.0'
+#======================== Helper ========================#
 # The random number generator to be used
 # _RNG = np.random.default_rng(seed=0) # Seeded one for testing
 _RNG = np.random.default_rng()
@@ -26,8 +22,6 @@ MACHINE_EPSILON = np.finfo(float).eps
 
 
 ######################## Constructors ########################
-
-
 def rand_p(n=2, zeros=0):
     """ Creates a random probability distribution, currently implemented only 
         with uniform sampling.
@@ -100,6 +94,10 @@ def rate_to_transition_matrix(W, time_step):
             (np.ndarray): the transition matrix
     
     """
+    if callable(W):
+        # Time-dependent rate matrix, call this function at each moment in time
+        return lambda t: rate_to_transition_matrix(W(t), time_step)
+
     return scipy.linalg.expm(W * time_step)
 
 
@@ -144,7 +142,7 @@ def self_assembly_rate_matrix(alpha=1, c=1, M=1):
     # if not isinstance(M, int):
     #     raise ValueError('The degeneracy of the misbound level, M, must be an integer.')
 
-    ### Main body ###
+    #--- Main body ---#
     W = np.array([
         [   -c * (M + 1),   alpha,      alpha**2    ],
         [   c * M,          -alpha,     0           ],
@@ -175,8 +173,8 @@ def self_assembly_transition_matrix(alpha=1, c=1, M=1, time_step=1):
         # Convert n to time.
         # This also serves to fix the temperature between observations to change
             # the control parameter discretely.
-        R = lambda n : self_assembly_transition_matrix(
-            alpha=alpha(n * time_step), c=c, M=M,
+        R = lambda k : self_assembly_transition_matrix(
+            alpha=alpha(k * time_step), c=c, M=M,
             time_step=time_step
         )
         return R
@@ -187,9 +185,7 @@ def self_assembly_transition_matrix(alpha=1, c=1, M=1, time_step=1):
         )
 
 
-######################## Probability Operations ########################
-
-
+#======================== Probability Operations ========================#
 def step(matrix, p):
     """ Evolves a probability distribution one step forward by computing the 
         matrix multiplication between matrix and p. In the case of the matrix being a rate matrix the output is the time-derivative of p.
@@ -203,7 +199,7 @@ def step(matrix, p):
             (np.ndarray): the evolved marginal
     
     """
-    return np.matmul(matrix, p)
+    return matrix @ p
     
 
 def get_stationary_distribution(matrix, discrete=True):
@@ -271,9 +267,7 @@ def get_path_probability(R, p, path):
     return total_jump_prob * p[path[0]]
 
 
-######################## Path space sampling ########################
-
-
+#======================== Path space sampling ========================#
 def complete_path_space(n, path_length):
     """ Generates the entire path space as a matrix with each row corresponding 
         to a path and each column corresponding to an observation step.
@@ -291,20 +285,17 @@ def complete_path_space(n, path_length):
 
     num_paths = n**path_length
 
-    bar = gui.ProgressBar(num_paths, width=300, title='Generating path space...')
     for i in range(num_paths):
         path = np.base_repr(i, base=n)
+        # Fixes constant width path to match the path length. Otherwise
+        # 1 and 221 are distinct path lengths when the former should read as 001
         path = ( path_length - len(path) )*'0' + path
         paths.append(
             # Convert the number from decimal to base n.
             # This will be in a string format, turn each digit into a separate
                 # int in a list, this will be a path.
                 [ int(state) for state in path ]
-            )
-
-        bar.update()
-
-    bar.finish()
+        )
 
     return np.array(paths)
 
@@ -475,8 +466,6 @@ def direct_sampling(R, p):
     
 
 ######################## Entry Code ########################
-
-
 def main():
     print('stochastic.py')
 
@@ -490,8 +479,9 @@ def main():
     print( f'paths: {paths}' )
     print( f'paths - paths2: {paths - paths2}' )
     
-    
-    
-    
+
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt as e:
+        print('Keyboard interrupt.')
