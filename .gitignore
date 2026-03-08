@@ -1,16 +1,16 @@
 #------------- Universal settings -------------#
 
-#--- Generated files ---#
-# Python cache
-__pycache__
-
-# MacOS files
+#--- macOS ---#
 .DS_STORE
 
-# Build directories for LaTeX and Sphinx
+#--- General & Build Related ---#
+# LaTeX, Sphinx, Pyinstaller, ...
 build
+dist
+icon.iconset
+icon.png
 
-# LaTeX build files
+#--- LaTeX ---#
 *.aux
 *.bbl
 *.bcf
@@ -23,17 +23,17 @@ build
 *.run.xml
 *.synctex.gz
 
+#--- Python ---#
+__pycache__
+.pyinstaller
+.tmp
+.venv
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints
-
 # Egg-info for pip
 *.egg-info
 
-# Poetry
-poetry.lock
-
-#--- Custom files ---#
-# Archived files
+#--- Custom ---#
 _archive
 
 #------------- Project-specific settings -------------#
