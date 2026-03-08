@@ -40,27 +40,34 @@ This package is pip-installable.
 
 ## Usage
 
-Generating a 3-state time-dependent self-assembly model with this package is as simple as writing
+**3-state self-assembly rate matrix** (time-dependent)
 ```python
 import numpy as np
 import stp
-# Dimensionless, time-dependent parameter for self assembly matrix
-alpha = lambda t : np.cos(t) + 2
+
+alpha = lambda t: np.cos(t) + 2
 W = stp.self_assembly_rate_matrix(alpha)
-
-# The initial matrix
-print(W(0))
-# [[-2.  3.  9.]
-# [ 1. -3.  0.]
-# [ 1.  0. -9.]]
-
-# A later matrix
-print(W(1))
-# [[-2.          2.54030231  6.45313581]
-# [ 1.         -2.54030231  0.        ]
-# [ 1.          0.         -6.45313581]]
+print(W(0))  # [[-2.  3.  9.] ...]
 ```
 
+**Stationary distribution**
+```python
+R = stp.rand_transition_matrix(3)
+p_star = stp.get_stationary_distribution(R, discrete=True)
+```
+
+**Shannon entropy**
+```python
+p = stp.rand_p(3)
+H = stp.info.entropy(p)
+```
+
+**KMC path sampling**
+```python
+W = stp.self_assembly_rate_matrix(alpha=1.5)
+p = stp.rand_p(3)
+paths = stp.KMC(W, p, num_paths=100, path_length=10, seed=42)
+```
 
 _For more examples, please refer to the [Documentation]._
 
