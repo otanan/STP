@@ -7,7 +7,9 @@ build:
   os: ubuntu-24.04
   tools:
     python: "3.10"
+  jobs:
+    post_install:
+      - python -m pip install -r docs/requirements.txt
 
-# Sphinx config is in docs/source/, not docs/
 sphinx:
   configuration: docs/source/conf.py
