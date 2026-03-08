@@ -13,10 +13,6 @@
     ·<a href="https://stochastic-thermodynamics-in-python.readthedocs.io/en/latest/"><strong>
         Documentation
     </strong></a>
-    <!-- Notion Roadmap link -->
-    ·<a target='_blank' href="https://otanan.notion.site/01f791e958c04bfeaf33cd066f3971c1?v=2ca4c56ad7404d59b2bd751e3fcaaee6"><strong>
-        Notion Roadmap »
-    </strong></a>
   </p>
 </div>
 

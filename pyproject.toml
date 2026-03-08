@@ -6,13 +6,14 @@ authors = [
 ]
 description = "Stochastic Thermodynamics in Python"
 
-license = "GNU GENERAL PUBLIC LICENSE"
+license = { file = "LICENSE" }
 readme = "README.md"
 
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=2.1",
-    "scipy>=1.14"
+    "scipy>=1.14",
+    "sphinx-rtd-theme>=3.1.0,<4.0.0"
 ]
 
 keywords = ['stochastic', 'thermodynamics', 'information theory', 'python']
