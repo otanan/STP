@@ -7,12 +7,11 @@
 #------------- Imports -------------#
 import sys
 import numpy as np
-import scipy.linalg
-import bisect # for binary search
+import scipy.linalg 
+import bisect # for binary search for KMC algorithm
+from functools import cache # memoization for transition matrices
 #--- Custom imports ---#
 #------------- Fields -------------#
-__version__ = '0.0.0.0'
-#======================== Helper ========================#
 # The random number generator to be used
 # _RNG = np.random.default_rng(seed=0) # Seeded one for testing
 _RNG = np.random.default_rng()
@@ -21,7 +20,7 @@ _RNG = np.random.default_rng()
 MACHINE_EPSILON = np.finfo(float).eps
 
 
-######################## Constructors ########################
+#======================== Constructors ========================#
 def rand_p(n=2, zeros=0):
     """ Creates a random probability distribution, currently implemented only 
         with uniform sampling.
@@ -54,7 +53,15 @@ def rand_p(n=2, zeros=0):
     return p / np.sum(p)
 
 
-def rand_rate_matrix(n=2, seed=None):
+def _matrix_to_rate_matrix(matrix):
+    """ Converts a square matrix into a rate matrix by normalizing the columns. """
+    np.fill_diagonal(matrix, 0)
+    # Normalize the columns to sum to zero.
+    np.fill_diagonal(matrix, -matrix.sum(axis=0))
+    return matrix
+
+
+def uniform_rand_rate_matrix(n=2, seed=None):
     """ Generates a random, time-independent, n x n rate matrix consisting of 
         probabilities per unit time. Column normalized.
     
@@ -70,15 +77,26 @@ def rand_rate_matrix(n=2, seed=None):
     # Use module-level rng if no seed is provided, else, seed one
     rng = _RNG if seed is None else np.random.default_rng(seed=seed)
 
-    # Generates a random n x n matrix
-    W = rng.random( (n, n) )
+    return _matrix_to_rate_matrix( rng.random(size=(n, n)) )
 
-    np.fill_diagonal(W, 0)
-    # Normalize the columns to sum to zero.
-    for y in range(n):
-        W[y, y] = -np.sum(W[:,y])
 
-    return W
+def normal_rand_rate_matrix(n=2, mean=0, std=1, seed=None):
+    """ Generates a random, time-independent, n x n rate matrix consisting of 
+        probabilities per unit time. Column normalized.
+    
+        Kwargs:
+            n (int): the number of states the matrix will correspond to. Relates to the dimensions of the matrix.
+
+            seed (None/int): the seed for sampling. Unseeded (uses module-level rng) if None.
+    
+        Returns:
+            (np.ndarray): the rate matrix.
+    
+    """
+    # Use module-level rng if no seed is provided, else, seed one
+    rng = _RNG if seed is None else np.random.default_rng(seed=seed)
+
+    return _matrix_to_rate_matrix( rng.normal(loc=mean, scale=std, size=(n, n)) )
 
 
 def rate_to_transition_matrix(W, time_step):
@@ -96,25 +114,29 @@ def rate_to_transition_matrix(W, time_step):
     """
     if callable(W):
         # Time-dependent rate matrix, call this function at each moment in time
-        return lambda t: rate_to_transition_matrix(W(t), time_step)
+        return cache(lambda t: rate_to_transition_matrix(W(t), time_step))
 
     return scipy.linalg.expm(W * time_step)
 
 
-def rand_transition_matrix(n=2, time_step=1.0):
-    """ Generates a random, time-independent, discrete time, transition matrix
-        by first generating a random rate matrix and then matrix exponentiating it to incorporate the time step as an additional parameter.
+def rand_transition_matrix(n=2, time_step=None):
+    """ Generates a random, time-independent, discrete time, transition matrix.
+        If a time_step is provided, then a rate matrix is generated first, to couple the time_step parameter to the rate matrix. Otherwise it is generated directly.
     
         Kwargs:
             n (int): the number of states the matrix will correspond to. Relates to the dimensions of the matrix.
 
-            time_step (float): the time step: the interval of time between observations.
+            time_step (float): the time step.
     
         Returns:
             (np.ndarray): the n x n transition matrix
     
     """
-    return rate_to_transition_matrix(rand_rate_matrix(n), time_step)
+    if time_step is not None:
+        return rate_to_transition_matrix(rand_rate_matrix(n), time_step)
+    
+    R = _RNG.random((n, n))
+    return R / R.sum(axis=0)
 
 
 def self_assembly_rate_matrix(alpha=1, c=1, M=1):
@@ -131,8 +153,11 @@ def self_assembly_rate_matrix(alpha=1, c=1, M=1):
             (np.ndarray/function): the time-independent rate matrix as a numpy array in the case where the temperature is constant. Otherwise returns a function corresponding to the time-dependent rate matrix.
     
     """
-    if not callable(alpha) and alpha <= 0:
-        raise ValueError('Must provide a nonnegative alpha parameter.')
+    if not callable(alpha):
+        if alpha < 0:
+            raise ValueError('Must provide a nonnegative alpha parameter.')
+        if alpha > 1:
+            raise ValueError('α must be less than 1 to represent a physical system since α = exp(-E/2T) and E/2T is a nonnegative quantity.')
 
     if callable(alpha):
         # T is a time-dependent temperature
@@ -169,20 +194,10 @@ def self_assembly_transition_matrix(alpha=1, c=1, M=1, time_step=1):
             (np.ndarray/function): the transition matrix
     
     """
-    if callable(alpha):
-        # Convert n to time.
-        # This also serves to fix the temperature between observations to change
-            # the control parameter discretely.
-        R = lambda k : self_assembly_transition_matrix(
-            alpha=alpha(k * time_step), c=c, M=M,
-            time_step=time_step
-        )
-        return R
-
     return rate_to_transition_matrix(
-            self_assembly_rate_matrix(alpha=alpha, c=c, M=M),
-            time_step
-        )
+        self_assembly_rate_matrix(alpha=alpha, c=c, M=M),
+        time_step
+    )
 
 
 #======================== Probability Operations ========================#
@@ -256,7 +271,7 @@ def get_path_probability(R, p, path):
         # of the observation step that simply returns the constant matrix.
     if not callable(R):
         matrix = R
-        R = lambda n: matrix
+        R = cache(lambda _: matrix)
 
     # Comprehension to collect transition probabilities for vectorized product
     total_jump_prob = np.array([
@@ -300,9 +315,10 @@ def complete_path_space(n, path_length):
     return np.array(paths)
 
 
-def KMC(W, p, num_paths, path_length, time_step=1, seed=None, _degenerate_threshold=0.985):
+def KMC(W, p, num_paths, path_length, time_step=1, seed=None):
     """ A Rejection-free Kinetic Monte Carlo (KMC) algorithm for simulating 
         the discrete time evolution of a system, where some processes can occur with known (continuous time) rates W = W(t). The discrete time dynamics will be computed using the continuous time rate matrix, W, by freezing the control parameter for moments of time, time_step. From: https://en.wikipedia.org/wiki/Kinetic_Monte_Carlo.
+        This algorithm can be improved by not freezing the control parameter, and parallelization, and by leveraging the first-order Markov assumption by generating the next step for all paths currently in the same state.
         
         Args:
             W (np.ndarray/function): rate matrix for np.ndarray. If function is provided then W is the function of time that provides a rate matrix (W = W(t)) for each moment in time. Will be used to implement driven systems. If W is just a rate matrix then W(t) is just the time-homogeneous rate matrix.
@@ -317,8 +333,6 @@ def KMC(W, p, num_paths, path_length, time_step=1, seed=None, _degenerate_thresh
             time_step (float): the interval between changing of rate matrix (changing of control parameter), and the delay between observations.
 
             seed (None/int): the seed for sampling. Unseeded (uses module-level rng) if None.
-
-            _degenerate_threshold (float): the fraction of paths that we require to be unique. If not satisfied KMC will be run again with an increased threshold.
     
         Returns:
             (np.ndarray): matrix of paths sampled via KMC.
@@ -327,8 +341,6 @@ def KMC(W, p, num_paths, path_length, time_step=1, seed=None, _degenerate_thresh
 
 
     #------------- Helper functions -------------#
-
-
     def _KMC_jump(cumulatives, state):
         """ Helper: takes cumulatives, a state, and generates 
             the next likely jump via the KMC algorithm and the time it takes to observe the jump. Useful for discretizing the KMC.
@@ -355,7 +367,6 @@ def KMC(W, p, num_paths, path_length, time_step=1, seed=None, _degenerate_thresh
 
 
     #------------- Initialization -------------#
-
     # Use module-level rng if no seed is provided, else, seed one
     rng = _RNG if seed is None else np.random.default_rng(seed=seed)
 
@@ -366,13 +377,8 @@ def KMC(W, p, num_paths, path_length, time_step=1, seed=None, _degenerate_thresh
         W = lambda t: constW
 
     # Read off the size of the state space.
-    n = W(0).shape[0]
+    n = len(W(0))
     state_options = np.arange(n)
-    # Read off the final time for the full time series observations given 
-        # the path length and the delay between observations.
-    # For final_time, time_step, and path_length, the relationship is:
-    # time_step * (number of jumps) = final_time
-    final_time = time_step * (path_length - 1)
 
     # Initialize the matrix storing the paths
     paths = np.full( (num_paths, path_length), -1, dtype='int64' )
@@ -396,11 +402,10 @@ def KMC(W, p, num_paths, path_length, time_step=1, seed=None, _degenerate_thresh
         # Matrix of partial sums, last one being the total rate
         # Each row corresponds to the same final index for the partial sum
         # Each column corresponds to which rates were summed together
-        cumulatives = np.array( [ [ 
-            np.sum(posW[:i+1, x])
-            for i in range(n)
-        ]   for x in range(n)
-        ] ).T
+        cumulatives = np.array([
+            [ np.sum(posW[:i+1, x]) for i in range(n) ]
+            for x in range(n)
+        ]).T
 
         # Run through the path matrix.
         for path in paths:
@@ -429,24 +434,7 @@ def KMC(W, p, num_paths, path_length, time_step=1, seed=None, _degenerate_thresh
 
             path[k] = next_state
 
-    ### Degenerate paths check ###
-    # Check for degenerate paths and sample again if needed.
-    paths = np.unique(paths, axis=0)
-    if paths.shape[0] / num_paths < _degenerate_threshold:
-        # Generate a rate matrix of perturbations
-        deltaW = rand_rate_matrix(n, seed=seed) / 100
-        Wprime = lambda t : W(t) + deltaW
-
-        # Run KMC again with an increased degeneracy threshold and 
-            # a perturbed rate matrix.
-        new_paths = KMC(Wprime, p, num_paths, path_length, time_step=time_step, seed=seed, _degenerate_threshold=_degenerate_threshold-10E-9)
-
-        # Combine the path data
-        paths = np.unique( np.vstack((paths, new_paths)), axis=0 )
-        
-    # Return only the requested number of paths (in case we have extra unique 
-        # ones from previous degeneracies)
-    return paths[:num_paths]
+    return np.unique(paths, axis=0)
 
 
 def direct_sampling(R, p):
@@ -462,7 +450,7 @@ def direct_sampling(R, p):
             (np.ndarray): the sampled portion of the path space.
     
     """
-    print('Direct sampling has not been implemented yet.')
+    raise NotImplementedError('Direct sampling has not been implemented yet.')
     
 
 ######################## Entry Code ########################

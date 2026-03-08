@@ -6,9 +6,11 @@
 Handles importing and setting project-wide fields.
 
 """
+from importlib.metadata import version
 
 __author__ = 'Jonathan Delgado'
-__version__ = '0.0.1.2'
+__version__ = version('stp')
+
 
 # Make all functions from stochastic accessible on import of stp
 from .stochastic import *
