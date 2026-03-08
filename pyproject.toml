@@ -13,6 +13,7 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy>=2.1",
     "scipy>=1.14",
+    "rich>=14.1",
     "sphinx-rtd-theme>=3.1.0,<4.0.0"
 ]
 
@@ -30,9 +31,6 @@ homepage = "https://jdelgado.net/"
 repository = "https://github.com/otanan/STP"
 documentation = "https://stochastic-thermodynamics-in-python.readthedocs.io/en/latest/"
 
-
-[project.optional-dependencies]
-rich = ["rich>=14.1"]
 
 
 [build-system]
